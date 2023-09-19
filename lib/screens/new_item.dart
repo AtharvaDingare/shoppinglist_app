@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:shoppinglist_app/data/categories.dart';
 import 'package:shoppinglist_app/models/grocery_item.dart';
@@ -20,6 +23,7 @@ class _NewItemScreenState extends State<NewItemScreen> {
   var _enteredName = '';
   var _enteredQuantity = 1;
   var _enteredCategory = categories[Categories.vegetables];
+  bool _isSending = false;
   late List<GroceryItem> groceryItemList;
 
   @override
@@ -28,17 +32,46 @@ class _NewItemScreenState extends State<NewItemScreen> {
     groceryItemList = widget.groceryItemList;
   }
 
-  void _saveItem() {
+  void _saveItem() async {
     // this is a method that can be used to validate a form , it basically calls the function that we have written inside the validator parameter.
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
-      final groceryitem = GroceryItem(
-        id: (groceryItemList.length + 1),
-        name: _enteredName,
-        quantity: _enteredQuantity,
-        category: _enteredCategory!,
+      setState(() {
+        _isSending = true;
+      });
+      final url = Uri.https(
+        'shopping-list-backend-62169-default-rtdb.firebaseio.com',
+        'shopping-list.json',
       );
-      Navigator.of(context).pop(groceryitem);
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-type': 'application/json',
+        },
+        body: json.encode(
+          {
+            'name': _enteredName,
+            'quantity': _enteredQuantity,
+            'category': _enteredCategory!.title,
+          },
+        ),
+      );
+      print(response
+          .body); // if you want to use such a response.body in your code (any value that it contains) then know that because we are getting it via http requests, it will be in json format and hence you have to first decode it to bring it into normal map (this example) format using json.decode()
+      print(response.statusCode);
+      final Map<String, dynamic> resData = json.decode(response.body);
+      // response.statuscode --> can be used to check if everything worked, for example , 4xx and 5xx codes are for erros , and 2xx codes generally mean everything worked as expected.
+      if (!context.mounted) {
+        return;
+      }
+      Navigator.of(context).pop(
+        GroceryItem(
+          id: resData["name"],
+          name: _enteredName,
+          quantity: _enteredQuantity,
+          category: _enteredCategory!,
+        ),
+      );
     }
   }
 
@@ -52,7 +85,8 @@ class _NewItemScreenState extends State<NewItemScreen> {
         padding: const EdgeInsets.all(12.0),
         child: Form(
           // this is a widget that enables various other widgets that would be helpful to generate a form.
-          key: _formKey,
+          key:
+              _formKey, // pass that key that was previously created to this form.
           child: Column(
             children: [
               TextFormField(
@@ -139,13 +173,24 @@ class _NewItemScreenState extends State<NewItemScreen> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   ElevatedButton(
-                    onPressed: _saveItem,
-                    child: const Text('Submit Form'),
+                    onPressed: _isSending ? null : _saveItem,
+                    child: _isSending
+                        ? const SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 3,
+                            ),
+                          )
+                        : const Text('Submit'),
                   ),
                   TextButton(
-                    onPressed: () {
-                      _formKey.currentState!.reset();
-                    },
+                    onPressed: _isSending
+                        ? null
+                        : () {
+                            _formKey.currentState!.reset();
+                          },
                     child: const Text('Reset Form'),
                   ),
                 ],
@@ -157,3 +202,29 @@ class _NewItemScreenState extends State<NewItemScreen> {
     );
   }
 }
+
+
+/*
+
+  WHAT IS JSON --> JSON IS BASICALLY A DATA TYPE (OR HOLDER) THAT CAN CONTAIN DATA IN HUMAN-READABLE FORM , AND THAT DATA CAN ALSO BE PARSED BY SYSTEM.
+  THE MAIN THING HERE IS THAT WHENEVER YOU ARE DOING POST REQUESTS IN HTTP , YOU HAVE TO PUT THE DATA IN JSON FORMAT AND THEN EVERYTHING HAPPENS SMOOTHLY.
+
+  Yes, that's a common scenario. When you're using an HTTP POST request to send data to a server (e.g., to add data to a database like Firebase), you often send that data in the JSON format. Here's a more detailed breakdown:
+
+JSON as Payload:
+
+When making a POST request, the data you want to send to the server is included in the body of the request. For many modern web services, this data is formatted as a JSON string.
+1. HTTP Headers:
+
+To inform the server that you're sending JSON data, you typically set the Content-Type header of your HTTP request to application/json.
+2. Server Parsing:
+
+The server, upon receiving your POST request, will check the Content-Type to understand how to parse the body. If it sees application/json, it knows to interpret the body as a JSON string and then typically converts it to whatever internal data format it uses (often still as some form of object or dictionary).
+3. Database Storage:
+
+Once the server has parsed the JSON data from the POST request, it can then take the necessary steps to save that data to a database (like Firebase in your example).
+Not Exclusive to JSON:
+
+While JSON is prevalent because of its simplicity and widespread support, some APIs and servers might accept data in other formats, like XML, form-encoded data (application/x-www-form-urlencoded), or even plain text.
+In the context of Firebase, especially Firebase's Realtime Database and Cloud Firestore, data sent via HTTP requests is typically formatted as JSON. The Firebase SDKs handle this formatting for you, but if you're making direct HTTP calls to Firebase's REST API, you'd format the data as JSON yourself.
+*/
